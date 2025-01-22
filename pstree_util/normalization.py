@@ -38,13 +38,14 @@ def normalize_process_tree(tree):
 
         # Update the process with normalized credentials
         normalized_tree[normalized_pid] = {
-            "ppid": pid_map[process["ppid"]],
+            "ppid": pid_map[process["ppid"]] if process["ppid"] != 0 else 0,
             "sid": normalized_sid,
             "pgid": normalized_pgid,
             "comm": process["comm"],
         }
 
     return normalized_tree
+
 
 if __name__ == '__main__':
   tree = {
