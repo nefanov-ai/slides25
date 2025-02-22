@@ -147,3 +147,80 @@ By carefully selecting the appropriate constraint method (or combining both), yo
 
 
 By carefully constraining the Q-function and V-function, PPO can be adapted for Safe RL, ensuring that the agent learns policies that are both high-performing and safe.
+
+
+---
+
+When it comes to **theoretical guarantees of safety** in **Safe Reinforcement Learning (Safe RL)**, the choice between constraining the **Q-function** and **V-function** depends on the mathematical framework and assumptions used. Both approaches can provide safety guarantees, but they do so under different conditions and theoretical foundations. Below, I explain the theoretical safety guarantees for each approach and highlight their differences.
+
+---
+
+### **1. Constraining the Q-function**
+#### **Theoretical Basis**:
+- The Q-function represents the expected cumulative cost (or reward) of taking an action \(a\) in state \(s\) and following the policy thereafter.
+- By constraining the Q-function for a **cost function** \(Q_C(s, a)\), we can ensure that the expected cumulative cost of any action \(a\) in state \(s\) does not exceed a safety threshold.
+
+#### **Safety Guarantee**:
+- If \(Q_C(s, a) \leq \text{threshold}\) for all \((s, a)\), then the policy is guaranteed to satisfy the safety constraint **at every step**.
+- This provides **action-level safety**, meaning the agent avoids taking unsafe actions in any state.
+
+#### **Theorems and Frameworks**:
+- **Constrained MDPs (CMDPs)**: In CMDPs, safety constraints are often expressed as bounds on the expected cumulative cost. Constraining the Q-function directly enforces these bounds.
+- **Lyapunov Functions**: In some frameworks, the Q-function can be used as a Lyapunov function to prove stability and safety. If \(Q_C(s, a)\) is bounded, the system remains within a safe region.
+
+#### **Limitations**:
+- The guarantee relies on accurate estimation of \(Q_C(s, a)\). In practice, approximation errors can weaken the guarantee.
+- The constraint must hold for all \((s, a)\), which can be computationally expensive to enforce.
+
+---
+
+### **2. Constraining the V-function**
+#### **Theoretical Basis**:
+- The V-function represents the expected cumulative cost (or reward) of being in state \(s\) and following the policy thereafter.
+- By constraining the V-function for a **cost function** \(V_C(s)\), we can ensure that the expected cumulative cost of being in any state \(s\) does not exceed a safety threshold.
+
+#### **Safety Guarantee**:
+- If \(V_C(s) \leq \text{threshold}\) for all \(s\), then the policy is guaranteed to satisfy the safety constraint **in expectation over trajectories**.
+- This provides **state-level safety**, meaning the agent avoids unsafe states on average.
+
+#### **Theorems and Frameworks**:
+- **Constrained MDPs (CMDPs)**: In CMDPs, constraints on the V-function enforce bounds on the expected cumulative cost over trajectories.
+- **Risk-Sensitive RL**: Constraining the V-function can be used to enforce risk-sensitive safety criteria, such as CVaR (Conditional Value at Risk) or probabilistic safety guarantees.
+
+#### **Limitations**:
+- The guarantee is in expectation, meaning there may still be rare violations of safety constraints.
+- The constraint must hold for all states, which can be challenging in large or continuous state spaces.
+
+---
+
+### **3. Theoretical Comparison**
+| **Aspect**               | **Constraining Q-function**                     | **Constraining V-function**                  |
+|--------------------------|------------------------------------------------|---------------------------------------------|
+| **Type of Guarantee**    | Action-level safety (per-step constraint)      | State-level safety (trajectory-level constraint) |
+| **Mathematical Framework** | Constrained MDPs, Lyapunov functions          | Constrained MDPs, Risk-Sensitive RL         |
+| **Strength of Guarantee** | Stronger (avoids unsafe actions at every step) | Weaker (ensures safety in expectation)      |
+| **Practical Challenges**  | Requires accurate \(Q_C(s, a)\) estimation    | Requires accurate \(V_C(s)\) estimation     |
+
+---
+
+### **4. Which Approach Theoretically Provides Safety?**
+- **Constraining the Q-function** provides stronger theoretical safety guarantees because it ensures that **no unsafe actions are taken at any step**. This is particularly useful in safety-critical applications where even a single unsafe action can lead to catastrophic outcomes.
+- **Constraining the V-function** provides weaker guarantees because it ensures safety **in expectation over trajectories**. This may be sufficient in applications where rare safety violations are acceptable.
+
+---
+
+### **5. Hybrid Approaches for Stronger Guarantees**
+In practice, a **hybrid approach** that combines both Q-function and V-function constraints can provide stronger theoretical guarantees:
+- Use the **Q-function** to enforce per-step safety constraints.
+- Use the **V-function** to enforce long-term safety constraints.
+
+This combination ensures both immediate and long-term safety, leveraging the strengths of both approaches.
+
+---
+
+### **6. Key Takeaways**
+- **Q-function constraints** provide stronger theoretical safety guarantees at the action level.
+- **V-function constraints** provide weaker guarantees at the state level but are computationally more efficient.
+- For the strongest theoretical guarantees, consider a **hybrid approach** that combines both methods.
+
+By carefully selecting the appropriate constraint method (or combining both), you can achieve theoretical safety guarantees in Safe RL while balancing computational efficiency and practical implementation challenges.
