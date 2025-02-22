@@ -785,3 +785,163 @@ Here’s how you can modify the algorithm to include **hard constraints** on the
   - Use **shorter time steps** or **centralized control**.
 
 By combining these approaches, you can achieve a **high level of safety** in swarm drone control tasks. Let me know if you'd like further details or code implementation!
+
+---
+
+To incorporate a **hard penalty on the minimum distance between drones** into the **swarm drone control task with V-function constraints**, we need to modify the **reward function** and **cost function** to explicitly penalize violations of the minimum distance constraint. This ensures that the drones maintain a safe distance from each other, reducing the likelihood of collisions. Below, I provide the updated task setup and algorithm.
+
+---
+
+### **Updated Task Setting: Safe Swarm Drone Navigation with Hard Penalty on Minimum Distance**
+
+#### **1. Environment Setup**
+- **Number of Drones**: \( N \) drones in the swarm.
+- **State Space (\( \mathcal{S} \))**:
+  - Each drone’s state includes its position \((x_i, y_i, z_i)\), velocity \((v_{x_i}, v_{y_i}, v_{z_i})\), and information about other drones and obstacles.
+  - Example for drone \( i \):
+    \[
+    s_i = (x_i, y_i, z_i, v_{x_i}, v_{y_i}, v_{z_i}, \text{positions of other drones}, \text{positions and radii of obstacles}, \text{target position}).
+    \]
+  - The global state \( S \) is the concatenation of all individual drone states:
+    \[
+    S = (s_1, s_2, \dots, s_N).
+    \]
+
+- **Action Space (\( \mathcal{A} \))**:
+  - Each drone’s action is its thrust and orientation changes.
+  - Example for drone \( i \):
+    \[
+    a_i = (\Delta v_{x_i}, \Delta v_{y_i}, \Delta v_{z_i}).
+    \]
+  - The global action \( A \) is the concatenation of all individual drone actions:
+    \[
+    A = (a_1, a_2, \dots, a_N).
+    \]
+
+- **Dynamics**:
+  - Each drone moves according to simplified physics:
+    \[
+    x_{i,t+1} = x_{i,t} + v_{x_i} \Delta t, \quad y_{i,t+1} = y_{i,t} + v_{y_i} \Delta t, \quad z_{i,t+1} = z_{i,t} + v_{z_i} \Delta t.
+    \]
+
+---
+
+#### **2. Reward Function (\( r(S, A) \))**:
+The reward function now includes a **hard penalty** for violating the minimum distance between drones. Let \( d_{\text{min}}} \) be the minimum safe distance between drones.
+
+- **Positive reward** for reaching the target.
+- **Negative reward** for collisions with obstacles or other drones, or for leaving the safe region.
+- **Hard penalty** for violating the minimum distance between drones.
+- Example for drone \( i \):
+  \[
+  r_i(s_i, a_i) = \begin{cases}
+  +100 & \text{if drone } i \text{ reaches the target}, \\
+  -100 & \text{if drone } i \text{ crashes into an obstacle or another drone}, \\
+  -\| \text{position}_i - \text{target} \| - \lambda \cdot \text{violation}(s_i, a_i) & \text{otherwise},
+  \end{cases}
+  \]
+  where:
+  - \( \text{violation}(s_i, a_i) \) is a measure of how much the minimum distance constraint is violated:
+    \[
+    \text{violation}(s_i, a_i) = \max(0, d_{\text{min}}} - \min_{j \neq i} \| \text{position}_i - \text{position}_j \|).
+    \]
+  - \( \lambda \) is a weighting factor that controls the strength of the penalty.
+
+- The global reward \( R \) is the sum of individual rewards:
+  \[
+  R(S, A) = \sum_{i=1}^N r_i(s_i, a_i).
+  \]
+
+---
+
+#### **3. Cost Function (\( c(S, A) \))**:
+The cost function now includes two components:
+1. **Collision Avoidance Between Drones**:
+   - Drones must maintain a minimum safe distance \( d_{\text{min}}} \) from each other.
+   - Example for drone \( i \):
+     \[
+     c_{i,\text{drones}}(s_i, a_i) = \begin{cases}
+     1 & \text{if } \min_{j \neq i} \| \text{position}_i - \text{position}_j \| < d_{\text{min}}}, \\
+     0 & \text{otherwise}.
+     \end{cases}
+     \]
+
+2. **Collision Avoidance with Obstacles**:
+   - Drones must avoid getting too close to obstacles.
+   - Example for drone \( i \):
+     \[
+     c_{i,\text{obstacles}}(s_i, a_i) = \begin{cases}
+     1 & \text{if } \min_{k} \| \text{position}_i - \text{obstacle}_k \| < r_k + d_{\text{safe}}}, \\
+     0 & \text{otherwise}.
+     \end{cases}
+     \]
+   - Here, \( r_k \) is the radius of obstacle \( k \), and \( d_{\text{safe}}} \) is the minimum safe distance from obstacles.
+
+- The **global cost** \( C \) is the sum of individual costs for all drones:
+  \[
+  C(S, A) = \sum_{i=1}^N \left( c_{i,\text{drones}}(s_i, a_i) + c_{i,\text{obstacles}}(s_i, a_i) \right).
+  \]
+
+---
+
+#### **4. Safety Constraint**
+The swarm must ensure that the **expected cumulative cost** (e.g., time spent with drones too close to each other or to obstacles) does not exceed a safety threshold \( \tau \). This is enforced by constraining the **cost V-function** \( V_C^\pi(S) \):
+\[
+V_C^\pi(S) = \mathbb{E} \left[ \sum_{t=0}^\infty \gamma^t C(S_t, A_t) \,\bigg|\, S_0 = S, A_t \sim \pi(\cdot | S_t) \right] \leq \tau.
+\]
+
+---
+
+#### **5. Multi-Agent Safe RL Algorithm (MAPPO with Constraints)**
+The algorithm remains the same as before, but now the reward function includes a **hard penalty** for violating the minimum distance between drones.
+
+1. **Policy Evaluation**:
+   - Estimate the cost V-function \( V_C^\pi(S) \) using a centralized critic.
+   - Update \( V_C^\pi(S) \) using the Bellman equation:
+     \[
+     V_C^\pi(S) = \mathbb{E}_{A \sim \pi(\cdot | S)} \left[ C(S, A) + \gamma \mathbb{E}_{S' \sim P(\cdot | S, A)} \left[ V_C^\pi(S') \right] \right].
+     \]
+
+2. **Policy Improvement**:
+   - Maximize the reward objective while ensuring the safety constraint:
+     \[
+     \max_\pi \mathbb{E} \left[ \sum_{t=0}^\infty \gamma^t R(S_t, A_t) \right],
+     \]
+     subject to:
+     \[
+     V_C^\pi(S) \leq \tau \quad \forall S \in \mathcal{S}.
+     \]
+
+3. **Lagrangian Method**:
+   - Use a Lagrangian multiplier \( \lambda \) to incorporate the constraint into the objective:
+     \[
+     \mathcal{L}(\pi, \lambda) = \mathbb{E} \left[ \sum_{t=0}^\infty \gamma^t R(S_t, A_t) \right] - \lambda \left( V_C^\pi(S) - \tau \right).
+     \]
+   - Optimize \( \pi \) and \( \lambda \) iteratively.
+
+---
+
+#### **6. Example Simulation**
+- **Number of Drones**: \( N = 5 \).
+- **Obstacles**: \( M = 3 \) static obstacles with positions \((3, 3, 2)\), \((7, 7, 4)\), and \((5, 5, 3)\), each with radius \( r_k = 1 \).
+- **Initial State**: All drones start at random positions within a bounded region.
+- **Target Location**: A common target at \((10, 10, 5)\).
+- **Minimum Distance**: \( d_{\text{min}}} = 2 \) meters (for both drones and obstacles).
+- **Safety Threshold**: \( \tau = 0.1 \).
+
+- **Training**:
+  - The swarm learns to navigate to the target while maintaining safe distances from obstacles and other drones.
+  - The cost V-function \( V_C^\pi(S) \) is constrained to ensure safety.
+
+- **Result**:
+  - The swarm reaches the target while maintaining safe distances from obstacles and other drones.
+  - Collisions are rare and controlled.
+
+---
+
+### **Key Takeaways**
+- Adding a **hard penalty on the minimum distance between drones** ensures that the drones maintain a safe distance from each other.
+- The **cost V-function** \( V_C^\pi(S) \) is constrained to ensure that the expected cumulative cost of collisions is bounded.
+- This approach significantly reduces the likelihood of collisions while maintaining the theoretical safety guarantees of the V-function constraints.
+
+Let me know if you'd like further details or code implementation!
