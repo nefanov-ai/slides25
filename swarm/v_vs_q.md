@@ -222,5 +222,88 @@ This combination ensures both immediate and long-term safety, leveraging the str
 - **Q-function constraints** provide stronger theoretical safety guarantees at the action level.
 - **V-function constraints** provide weaker guarantees at the state level but are computationally more efficient.
 - For the strongest theoretical guarantees, consider a **hybrid approach** that combines both methods.
+- 
+
+---
+
+To provide a **theorem on V-function constraints** in the context of **Safe Reinforcement Learning (Safe RL)**, we can frame the problem within the **Constrained Markov Decision Process (CMDP)** framework. The theorem will establish conditions under which constraining the V-function ensures safety in terms of expected cumulative costs.
+
+---
+
+### **Theorem: Safety Guarantee via V-function Constraints**
+
+#### **Setup**:
+- Let \( \mathcal{M} = (\mathcal{S}, \mathcal{A}, P, r, c, \gamma) \) be a **Constrained Markov Decision Process (CMDP)**, where:
+  - \( \mathcal{S} \): State space.
+  - \( \mathcal{A} \): Action space.
+  - \( P \): Transition dynamics, \( P(s' | s, a) \).
+  - \( r \): Reward function, \( r(s, a) \).
+  - \( c \): Cost function, \( c(s, a) \), representing the safety violation at each step.
+  - \( \gamma \): Discount factor, \( \gamma \in [0, 1) \).
+- Let \( V_C^\pi(s) \) be the **cost value function** (V-function for costs) under policy \( \pi \), defined as:
+  \[
+  V_C^\pi(s) = \mathbb{E} \left[ \sum_{t=0}^\infty \gamma^t c(s_t, a_t) \,\bigg|\, s_0 = s, a_t \sim \pi(\cdot | s_t) \right].
+  \]
+- Let \( \tau \) be a **safety threshold**, such that the expected cumulative cost must satisfy \( V_C^\pi(s) \leq \tau \) for all \( s \in \mathcal{S} \).
+
+---
+
+#### **Theorem**:
+If a policy \( \pi \) satisfies:
+\[
+V_C^\pi(s) \leq \tau \quad \forall s \in \mathcal{S},
+\]
+then the expected cumulative cost of \( \pi \) starting from any state \( s \) is bounded by \( \tau \). This ensures that the policy \( \pi \) is **safe** in the sense that it satisfies the safety constraint in expectation.
+
+---
+
+#### **Proof**:
+1. **Definition of \( V_C^\pi(s) \)**:
+   By definition, \( V_C^\pi(s) \) represents the expected cumulative cost of following policy \( \pi \) starting from state \( s \):
+   \[
+   V_C^\pi(s) = \mathbb{E} \left[ \sum_{t=0}^\infty \gamma^t c(s_t, a_t) \,\bigg|\, s_0 = s, a_t \sim \pi(\cdot | s_t) \right].
+   \]
+
+2. **Constraint Satisfaction**:
+   If \( V_C^\pi(s) \leq \tau \) for all \( s \in \mathcal{S} \), then:
+   \[
+   \mathbb{E} \left[ \sum_{t=0}^\infty \gamma^t c(s_t, a_t) \,\bigg|\, s_0 = s, a_t \sim \pi(\cdot | s_t) \right] \leq \tau \quad \forall s \in \mathcal{S}.
+   \]
+   This means that the expected cumulative cost of \( \pi \) is bounded by \( \tau \) for any starting state \( s \).
+
+3. **Implication for Safety**:
+   Since \( V_C^\pi(s) \leq \tau \) for all \( s \), the policy \( \pi \) ensures that the expected cumulative cost (e.g., safety violations) over trajectories is bounded by \( \tau \). This provides a **probabilistic safety guarantee** in expectation.
+
+---
+
+#### **Remarks**:
+1. **Interpretation**:
+   - The theorem guarantees that the **expected cumulative cost** of the policy \( \pi \) is bounded by \( \tau \).
+   - This is a **weaker guarantee** than per-step safety (e.g., constraining the Q-function), as it allows for rare safety violations as long as the expected cost remains within the threshold.
+
+2. **Practical Implications**:
+   - To enforce this constraint in practice, one can use **Lagrangian methods** or **trust-region optimization** to ensure \( V_C^\pi(s) \leq \tau \) during policy optimization.
+   - The constraint must hold for all states \( s \in \mathcal{S} \), which can be challenging in large or continuous state spaces. Approximation methods (e.g., using neural networks) are often used to estimate \( V_C^\pi(s) \).
+
+3. **Extensions**:
+   - The theorem can be extended to **finite-horizon settings** by replacing the infinite sum with a finite sum over a horizon \( T \).
+   - It can also be generalized to **risk-sensitive constraints** (e.g., CVaR or chance constraints) by modifying the definition of \( V_C^\pi(s) \).
+
+---
+
+### **Example Application**
+In **Safe RL**, this theorem can be used to design algorithms that enforce safety constraints via the V-function. For instance:
+1. Define a cost function \( c(s, a) \) that quantifies safety violations.
+2. Train a policy \( \pi \) to maximize reward while ensuring \( V_C^\pi(s) \leq \tau \) for all \( s \).
+3. Use a **Lagrangian dual** to incorporate the constraint into the optimization objective:
+   \[
+   \mathcal{L}(\pi, \lambda) = \mathbb{E} \left[ \sum_{t=0}^\infty \gamma^t r(s_t, a_t) \right] - \lambda \left( V_C^\pi(s) - \tau \right),
+   \]
+   where \( \lambda \) is the Lagrange multiplier.
+
+---
+
+### **Conclusion**
+The theorem provides a **theoretical foundation** for ensuring safety in Safe RL by constraining the V-function. While it offers a probabilistic safety guarantee in expectation, it is important to note that this guarantee is weaker than per-step safety (e.g., Q-function constraints). However, it is often more computationally tractable and can be combined with other methods (e.g., Q-function constraints) to achieve stronger safety guarantees.
 
 By carefully selecting the appropriate constraint method (or combining both), you can achieve theoretical safety guarantees in Safe RL while balancing computational efficiency and practical implementation challenges.
