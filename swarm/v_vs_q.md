@@ -306,4 +306,92 @@ In **Safe RL**, this theorem can be used to design algorithms that enforce safet
 ### **Conclusion**
 The theorem provides a **theoretical foundation** for ensuring safety in Safe RL by constraining the V-function. While it offers a probabilistic safety guarantee in expectation, it is important to note that this guarantee is weaker than per-step safety (e.g., Q-function constraints). However, it is often more computationally tractable and can be combined with other methods (e.g., Q-function constraints) to achieve stronger safety guarantees.
 
+---
+
+
+The **theorem on V-function constraints** and its application to **Safe Reinforcement Learning (Safe RL)** is not tied to a single specific article but is instead a fundamental concept that appears in various forms across the literature on **Constrained Markov Decision Processes (CMDPs)** and **Safe RL**. Below, I outline the key sources and frameworks where this theorem and related ideas are discussed:
+
+---
+
+### **1. Constrained Markov Decision Processes (CMDPs)**
+The concept of constraining the V-function to enforce safety constraints is rooted in the theory of **Constrained MDPs**. The following resources are foundational:
+
+#### **Key Papers**:
+1. **Altman, E. (1999). "Constrained Markov Decision Processes."**
+   - This book is the definitive reference on CMDPs.
+   - It formalizes the idea of adding constraints (e.g., on cumulative costs) to MDPs and provides theoretical guarantees for solving such problems.
+   - The theorem on V-function constraints can be derived from the framework presented in this book.
+
+2. **Geibel, P., & Wysotzki, F. (2005). "Risk-Sensitive Reinforcement Learning Applied to Control under Constraints."**
+   - This paper discusses how to use value functions (including the V-function) to enforce constraints in RL.
+   - It provides theoretical insights into constraining the expected cumulative cost.
+
+---
+
+### **2. Safe Reinforcement Learning**
+The application of V-function constraints to Safe RL has been explored in several papers. Below are some key references:
+
+#### **Key Papers**:
+1. **Chow, Y., et al. (2017). "Risk-Constrained Reinforcement Learning with Percentile Risk Criteria."**
+   - This paper formalizes risk constraints in RL using value functions.
+   - It discusses how to constrain the V-function to ensure safety in expectation.
+
+2. **Achiam, J., et al. (2017). "Constrained Policy Optimization."**
+   - This paper introduces the **Constrained Policy Optimization (CPO)** algorithm, which enforces constraints on the expected cumulative cost.
+   - The theoretical framework in this paper relies on constraining the V-function for costs.
+
+3. **Ray, A., et al. (2019). "Benchmarking Safe Exploration in Deep Reinforcement Learning."**
+   - This work benchmarks various Safe RL algorithms, many of which use V-function constraints to enforce safety.
+   - It provides practical insights into how V-function constraints are implemented in modern RL.
+
+---
+
+### **3. Lyapunov Methods for Safe RL**
+Lyapunov methods provide another theoretical framework for ensuring safety in RL, often involving the V-function.
+
+#### **Key Papers**:
+1. **Berkenkamp, F., et al. (2017). "Safe Model-Based Reinforcement Learning with Stability Guarantees."**
+   - This paper uses Lyapunov functions to ensure stability and safety in RL.
+   - The V-function can be interpreted as a Lyapunov function in this context.
+
+2. **Chow, Y., et al. (2018). "A Lyapunov-Based Approach to Safe Reinforcement Learning."**
+   - This paper formalizes the use of Lyapunov functions (which are closely related to the V-function) to enforce safety constraints.
+
+---
+
+### **4. Risk-Sensitive Reinforcement Learning**
+Risk-sensitive RL extends the idea of constraining the V-function to handle more complex safety criteria, such as probabilistic or percentile constraints.
+
+#### **Key Papers**:
+1. **Tamar, A., et al. (2015). "Policy Gradients with Variance-Related Risk Criteria."**
+   - This paper discusses how to incorporate risk constraints into RL using value functions.
+   - It provides theoretical guarantees for constraining the V-function.
+
+2. **Prashanth, L. A., & Ghavamzadeh, M. (2016). "Variance-Constrained Actor-Critic Algorithms for Discounted and Average Reward MDPs."**
+   - This work extends the idea of V-function constraints to handle variance-related risk measures.
+
+---
+
+### **5. Practical Algorithms**
+Several practical algorithms in Safe RL use V-function constraints, and their theoretical foundations are discussed in the corresponding papers:
+
+1. **TRPO with Constraints (e.g., CPO)**:
+   - Achiam, J., et al. (2017). "Constrained Policy Optimization."
+   - This paper provides a practical algorithm for enforcing V-function constraints in RL.
+
+2. **Lagrangian Methods**:
+   - Ray, A., et al. (2019). "Benchmarking Safe Exploration in Deep Reinforcement Learning."
+   - This work discusses how Lagrangian methods can be used to enforce V-function constraints.
+
+---
+
+### **Summary**
+The **theorem on V-function constraints** is a fundamental result in the theory of **Constrained MDPs** and **Safe RL**. It appears in various forms across the literature, including:
+- **Altman (1999)**: Foundational work on CMDPs.
+- **Achiam et al. (2017)**: CPO algorithm and theoretical framework.
+- **Chow et al. (2017)**: Risk-constrained RL with percentile criteria.
+- **Berkenkamp et al. (2017)**: Lyapunov-based methods for Safe RL.
+
+If you're looking for a specific article, I recommend starting with **Achiam et al. (2017)** or **Altman (1999)** for the most direct theoretical treatment. Let me know if you'd like help accessing any of these papers!
+
 By carefully selecting the appropriate constraint method (or combining both), you can achieve theoretical safety guarantees in Safe RL while balancing computational efficiency and practical implementation challenges.
