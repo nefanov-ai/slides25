@@ -658,3 +658,130 @@ The algorithm remains the same as before, but now the cost function \( C(S, A) \
 - **MAPPO** with safety constraints ensures that the swarm avoids collisions and maintains safe distances in expectation.
 
 This extended example demonstrates how **obstacles** can be included in a **Safe RL swarm drone control task**. Let me know if you'd like further details or code implementation!
+
+---
+
+The **algorithm described above** (MAPPO with V-function constraints) **does not guarantee zero collisions** between drones. Instead, it ensures that the **expected cumulative cost** of collisions (or near-collisions) is bounded by a safety threshold \( \tau \). This means that collisions may still occur, but they will be **rare** and **controlled** in expectation. Below, I explain why this is the case and how the algorithm can be modified to further reduce the likelihood of collisions.
+
+---
+
+### **Why the Algorithm Does Not Guarantee Zero Collisions**
+
+1. **Expected Cumulative Cost Constraint**:
+   - The safety constraint \( V_C^\pi(S) \leq \tau \) ensures that the **expected cumulative cost** (e.g., time spent with drones too close to each other or to obstacles) is bounded.
+   - This is a **probabilistic guarantee**, not a deterministic one. Collisions may still occur, but their likelihood is minimized.
+
+2. **Stochastic Policy**:
+   - The policy \( \pi \) is typically stochastic, meaning that actions are sampled from a probability distribution. This introduces variability in the drones' trajectories, which can lead to rare collisions.
+
+3. **Approximation Errors**:
+   - The cost V-function \( V_C^\pi(S) \) is approximated using function approximators (e.g., neural networks). Approximation errors can weaken the safety guarantees.
+
+4. **Discrete-Time Dynamics**:
+   - The dynamics are simulated in discrete time steps, which can lead to collisions if drones move too close to each other between steps.
+
+---
+
+### **How to Reduce the Likelihood of Collisions**
+
+To further reduce the likelihood of collisions, you can incorporate additional mechanisms into the algorithm. Here are some approaches:
+
+---
+
+#### **1. Hard Constraints on Minimum Distance**
+- Introduce **hard constraints** that explicitly prevent drones from getting closer than a minimum distance \( d_{\text{min}} \) to each other or to obstacles.
+- This can be implemented by:
+  - Adding a **penalty term** to the reward function for violating the minimum distance.
+  - Using **projection-based methods** to ensure that actions do not lead to violations of the minimum distance.
+
+---
+
+#### **2. Collision Avoidance Mechanisms**
+- Use **local collision avoidance algorithms** (e.g., velocity obstacles, potential fields, or rule-based methods) in conjunction with the RL policy.
+- These mechanisms can override the RL policy's actions if a collision is imminent.
+
+---
+
+#### **3. Risk-Sensitive Constraints**
+- Replace the expected cumulative cost constraint with a **risk-sensitive constraint** (e.g., Conditional Value at Risk (CVaR) or chance constraints).
+- This ensures that the probability of collisions is explicitly bounded.
+
+---
+
+#### **4. Shorter Time Steps**
+- Use **shorter time steps** in the simulation to reduce the likelihood of collisions between steps.
+
+---
+
+#### **5. Centralized Control with Global Information**
+- Use a **centralized controller** that has access to the global state of all drones and obstacles.
+- The centralized controller can plan collision-free trajectories for all drones.
+
+---
+
+### **Modified Algorithm with Hard Constraints**
+
+Here’s how you can modify the algorithm to include **hard constraints** on the minimum distance between drones:
+
+1. **State Space**:
+   - Include the positions and velocities of all drones and obstacles.
+
+2. **Action Space**:
+   - Each drone’s action is its thrust and orientation changes.
+
+3. **Reward Function**:
+   - Positive reward for reaching the target.
+   - Negative reward for collisions or leaving the safe region.
+   - Add a **penalty term** for violating the minimum distance:
+     \[
+     r_i(s_i, a_i) = \begin{cases}
+     +100 & \text{if drone } i \text{ reaches the target}, \\
+     -100 & \text{if drone } i \text{ crashes}, \\
+     -\| \text{position}_i - \text{target} \| - \lambda \cdot \text{violation}(s_i, a_i) & \text{otherwise},
+     \end{cases}
+     \]
+     where \( \text{violation}(s_i, a_i) \) is a measure of how much the minimum distance constraint is violated, and \( \lambda \) is a weighting factor.
+
+4. **Cost Function**:
+   - The cost function now includes a **hard constraint** on the minimum distance:
+     \[
+     c_i(s_i, a_i) = \begin{cases}
+     1 & \text{if } \min_{j \neq i} \| \text{position}_i - \text{position}_j \| < d_{\text{min}}}, \\
+     0 & \text{otherwise}.
+     \end{cases}
+     \]
+
+5. **Safety Constraint**:
+   - The safety constraint \( V_C^\pi(S) \leq \tau \) ensures that the expected cumulative cost of violating the minimum distance is bounded.
+
+6. **Policy Optimization**:
+   - Use MAPPO with the modified reward and cost functions.
+   - Add a **projection step** to ensure that actions do not lead to violations of the minimum distance.
+
+---
+
+### **Example Simulation with Hard Constraints**
+- **Number of Drones**: \( N = 5 \).
+- **Obstacles**: \( M = 3 \) static obstacles.
+- **Minimum Distance**: \( d_{\text{min}}} = 2 \) meters.
+- **Safety Threshold**: \( \tau = 0.1 \).
+
+- **Training**:
+  - The swarm learns to navigate to the target while avoiding collisions with obstacles and other drones.
+  - The cost V-function \( V_C^\pi(S) \) is constrained to ensure safety.
+
+- **Result**:
+  - The swarm reaches the target while maintaining safe distances from obstacles and other drones.
+  - Collisions are rare and controlled.
+
+---
+
+### **Key Takeaways**
+- The original algorithm ensures that the **expected cumulative cost** of collisions is bounded but does not guarantee zero collisions.
+- To further reduce collisions, you can:
+  - Add **hard constraints** on the minimum distance.
+  - Use **collision avoidance mechanisms**.
+  - Incorporate **risk-sensitive constraints**.
+  - Use **shorter time steps** or **centralized control**.
+
+By combining these approaches, you can achieve a **high level of safety** in swarm drone control tasks. Let me know if you'd like further details or code implementation!
