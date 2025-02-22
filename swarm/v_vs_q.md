@@ -944,4 +944,806 @@ The algorithm remains the same as before, but now the reward function includes a
 - The **cost V-function** \( V_C^\pi(S) \) is constrained to ensure that the expected cumulative cost of collisions is bounded.
 - This approach significantly reduces the likelihood of collisions while maintaining the theoretical safety guarantees of the V-function constraints.
 
-Let me know if you'd like further details or code implementation!
+---
+
+Below is an example implementation of the **Multi-Agent Proximal Policy Optimization (MAPPO)** algorithm for the **swarm drone control task** with **V-function constraints** and a **hard penalty on the minimum distance between drones**. The implementation uses the **PyTorch** library for the neural networks and a custom environment for the swarm drone simulation.
+
+---
+
+### **Code Implementation**
+
+#### **1. Environment Setup**
+The environment simulates the swarm of drones, obstacles, and the target location. It includes:
+- State space: Positions and velocities of all drones, positions of obstacles, and target location.
+- Action space: Thrust and orientation changes for each drone.
+- Reward function: Includes a hard penalty for violating the minimum distance between drones.
+- Cost function: Penalizes collisions and near-collisions.
+
+```python
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.distributions import MultivariateNormal
+
+class SwarmDroneEnv:
+    def __init__(self, num_drones=5, num_obstacles=3, target=(10, 10, 5), min_distance=2, dt=0.1):
+        self.num_drones = num_drones
+        self.num_obstacles = num_obstacles
+        self.target = np.array(target)
+        self.min_distance = min_distance
+        self.dt = dt
+
+        # Initialize drone positions and velocities
+        self.drone_positions = np.random.uniform(0, 5, (num_drones, 3))
+        self.drone_velocities = np.zeros((num_drones, 3))
+
+        # Initialize obstacle positions
+        self.obstacle_positions = np.array([[3, 3, 2], [7, 7, 4], [5, 5, 3]])
+        self.obstacle_radii = np.ones(num_obstacles)
+
+    def reset(self):
+        # Reset drone positions and velocities
+        self.drone_positions = np.random.uniform(0, 5, (self.num_drones, 3))
+        self.drone_velocities = np.zeros((self.num_drones, 3))
+        return self.get_state()
+
+    def get_state(self):
+        # Concatenate drone positions, velocities, obstacle positions, and target
+        state = np.concatenate([
+            self.drone_positions.flatten(),
+            self.drone_velocities.flatten(),
+            self.obstacle_positions.flatten(),
+            self.target.flatten()
+        ])
+        return state
+
+    def step(self, actions):
+        # Update drone velocities and positions
+        self.drone_velocities += actions * self.dt
+        self.drone_positions += self.drone_velocities * self.dt
+
+        # Compute rewards and costs
+        rewards = np.zeros(self.num_drones)
+        costs = np.zeros(self.num_drones)
+
+        for i in range(self.num_drones):
+            # Reward for reaching the target
+            distance_to_target = np.linalg.norm(self.drone_positions[i] - self.target)
+            rewards[i] += -distance_to_target
+
+            # Penalty for violating minimum distance
+            for j in range(self.num_drones):
+                if i != j:
+                    distance = np.linalg.norm(self.drone_positions[i] - self.drone_positions[j])
+                    if distance < self.min_distance:
+                        rewards[i] -= 10 * (self.min_distance - distance)
+                        costs[i] += 1
+
+            # Penalty for colliding with obstacles
+            for k in range(self.num_obstacles):
+                distance = np.linalg.norm(self.drone_positions[i] - self.obstacle_positions[k])
+                if distance < self.obstacle_radii[k]:
+                    rewards[i] -= 100
+                    costs[i] += 1
+
+        # Check if all drones have reached the target
+        done = all(np.linalg.norm(self.drone_positions[i] - self.target) < 1 for i in range(self.num_drones))
+
+        return self.get_state(), rewards, costs, done
+```
+
+---
+
+#### **2. MAPPO Algorithm**
+The MAPPO algorithm uses a centralized critic and decentralized actors. The critic estimates the value function \( V(s) \), while the actors optimize the policy \( \pi(a|s) \).
+
+```python
+class ActorCritic(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=64):
+        super(ActorCritic, self).__init__()
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim)
+        )
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
+
+    def forward(self, state):
+        action_mean = self.actor(state)
+        value = self.critic(state)
+        return action_mean, value
+
+class MAPPO:
+    def __init__(self, state_dim, action_dim, num_drones, hidden_dim=64, lr=1e-3, gamma=0.99, clip_epsilon=0.2):
+        self.actors = [ActorCritic(state_dim, action_dim, hidden_dim) for _ in range(num_drones)]
+        self.critic = ActorCritic(state_dim, action_dim, hidden_dim)
+        self.optimizers = [optim.Adam(actor.parameters(), lr=lr) for actor in self.actors]
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr)
+        self.gamma = gamma
+        self.clip_epsilon = clip_epsilon
+
+    def update(self, states, actions, rewards, costs, next_states, dones):
+        states = torch.FloatTensor(states)
+        actions = torch.FloatTensor(actions)
+        rewards = torch.FloatTensor(rewards)
+        costs = torch.FloatTensor(costs)
+        next_states = torch.FloatTensor(next_states)
+        dones = torch.FloatTensor(dones)
+
+        # Compute advantages
+        _, values = self.critic(states)
+        _, next_values = self.critic(next_states)
+        advantages = rewards + self.gamma * next_values * (1 - dones) - values
+
+        # Update actors
+        for i, actor in enumerate(self.actors):
+            action_mean, _ = actor(states)
+            dist = MultivariateNormal(action_mean, torch.eye(action_mean.shape[1]))
+            log_probs = dist.log_prob(actions[:, i])
+            ratios = torch.exp(log_probs - log_probs.detach())
+            surr1 = ratios * advantages[:, i]
+            surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages[:, i]
+            actor_loss = -torch.min(surr1, surr2).mean()
+            self.optimizers[i].zero_grad()
+            actor_loss.backward()
+            self.optimizers[i].step()
+
+        # Update critic
+        critic_loss = advantages.pow(2).mean()
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+```
+
+---
+
+#### **3. Training Loop**
+The training loop runs the environment and updates the MAPPO algorithm.
+
+```python
+def train_mappo(env, mappo, num_episodes=1000, max_steps=100):
+    for episode in range(num_episodes):
+        state = env.reset()
+        episode_rewards = np.zeros(env.num_drones)
+        episode_costs = np.zeros(env.num_drones)
+
+        for step in range(max_steps):
+            # Get actions from actors
+            actions = []
+            for i, actor in enumerate(mappo.actors):
+                action_mean, _ = actor(torch.FloatTensor(state))
+                dist = MultivariateNormal(action_mean, torch.eye(action_mean.shape[1]))
+                action = dist.sample()
+                actions.append(action.numpy())
+            actions = np.array(actions).T
+
+            # Step the environment
+            next_state, rewards, costs, done = env.step(actions)
+            episode_rewards += rewards
+            episode_costs += costs
+
+            # Update MAPPO
+            mappo.update(state, actions, rewards, costs, next_state, done)
+
+            state = next_state
+            if done:
+                break
+
+        print(f"Episode {episode + 1}, Total Reward: {episode_rewards.sum()}, Total Cost: {episode_costs.sum()}")
+
+# Initialize environment and MAPPO
+env = SwarmDroneEnv()
+state_dim = env.get_state().shape[0]
+action_dim = 3  # Thrust in x, y, z directions
+mappo = MAPPO(state_dim, action_dim, env.num_drones)
+
+# Train MAPPO
+train_mappo(env, mappo)
+```
+
+---
+
+### **Key Features**
+- **Environment**: Simulates a swarm of drones navigating to a target while avoiding obstacles and maintaining a minimum distance.
+- **MAPPO**: Uses a centralized critic and decentralized actors to optimize the policy while enforcing safety constraints.
+- **Hard Penalty**: Penalizes violations of the minimum distance between drones.
+
+This code provides a basic implementation. For a production-level system, you may need to:
+- Add more sophisticated collision avoidance mechanisms.
+- Use parallelized training for scalability.
+- Tune hyperparameters for better performance.
+
+Let me know if you need further assistance!
+
+---
+
+To implement the **swarm drone control task** using **PyBullet Gym**, we will create a custom environment that integrates with PyBullet for physics simulation. We will then implement **MAPPO with both V-function and Q-function constraints** for training the swarm of drones. Below is the complete implementation.
+
+---
+
+### **Code Implementation**
+
+#### **1. Custom PyBullet Gym Environment**
+We create a custom environment using PyBullet Gym for simulating the swarm of drones, obstacles, and the target location.
+
+```python
+import gym
+import numpy as np
+import pybullet as p
+import pybullet_data
+from gym import spaces
+
+class SwarmDroneEnv(gym.Env):
+    def __init__(self, num_drones=5, num_obstacles=3, target=(10, 10, 5), min_distance=2, dt=0.1):
+        super(SwarmDroneEnv, self).__init__()
+        self.num_drones = num_drones
+        self.num_obstacles = num_obstacles
+        self.target = np.array(target)
+        self.min_distance = min_distance
+        self.dt = dt
+
+        # Define action and observation space
+        self.action_space = spaces.Box(low=-1, high=1, shape=(num_drones * 3,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_drones * 6 + num_obstacles * 3 + 3,), dtype=np.float32)
+
+        # Initialize PyBullet
+        self.physics_client = p.connect(p.GUI)  # Use p.DIRECT for headless mode
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setGravity(0, 0, -9.81)
+
+        # Load ground plane
+        self.plane_id = p.loadURDF("plane.urdf")
+
+        # Load drones
+        self.drone_ids = []
+        for _ in range(num_drones):
+            drone_id = p.loadURDF("quadrotor.urdf", basePosition=[0, 0, 1])
+            self.drone_ids.append(drone_id)
+
+        # Load obstacles
+        self.obstacle_ids = []
+        for _ in range(num_obstacles):
+            obstacle_id = p.loadURDF("sphere_small.urdf", basePosition=[3, 3, 1])
+            self.obstacle_ids.append(obstacle_id)
+
+    def reset(self):
+        # Reset drone positions and velocities
+        for i, drone_id in enumerate(self.drone_ids):
+            p.resetBasePositionAndOrientation(drone_id, [i, i, 1], [0, 0, 0, 1])
+            p.resetBaseVelocity(drone_id, [0, 0, 0], [0, 0, 0])
+        return self._get_obs()
+
+    def _get_obs(self):
+        # Get drone positions and velocities
+        drone_positions = []
+        drone_velocities = []
+        for drone_id in self.drone_ids:
+            pos, _ = p.getBasePositionAndOrientation(drone_id)
+            vel, _ = p.getBaseVelocity(drone_id)
+            drone_positions.append(pos)
+            drone_velocities.append(vel)
+
+        # Get obstacle positions
+        obstacle_positions = []
+        for obstacle_id in self.obstacle_ids:
+            pos, _ = p.getBasePositionAndOrientation(obstacle_id)
+            obstacle_positions.append(pos)
+
+        # Concatenate observations
+        obs = np.concatenate([
+            np.array(drone_positions).flatten(),
+            np.array(drone_velocities).flatten(),
+            np.array(obstacle_positions).flatten(),
+            self.target.flatten()
+        ])
+        return obs
+
+    def step(self, actions):
+        # Reshape actions to (num_drones, 3)
+        actions = actions.reshape(self.num_drones, 3)
+
+        # Apply actions to drones
+        for i, drone_id in enumerate(self.drone_ids):
+            p.applyExternalForce(drone_id, -1, actions[i], [0, 0, 0], p.WORLD_FRAME)
+
+        # Step simulation
+        p.stepSimulation()
+
+        # Compute rewards and costs
+        rewards = np.zeros(self.num_drones)
+        costs = np.zeros(self.num_drones)
+
+        for i, drone_id in enumerate(self.drone_ids):
+            pos, _ = p.getBasePositionAndOrientation(drone_id)
+
+            # Reward for reaching the target
+            distance_to_target = np.linalg.norm(pos - self.target)
+            rewards[i] += -distance_to_target
+
+            # Penalty for violating minimum distance
+            for j, other_drone_id in enumerate(self.drone_ids):
+                if i != j:
+                    other_pos, _ = p.getBasePositionAndOrientation(other_drone_id)
+                    distance = np.linalg.norm(pos - other_pos)
+                    if distance < self.min_distance:
+                        rewards[i] -= 10 * (self.min_distance - distance)
+                        costs[i] += 1
+
+            # Penalty for colliding with obstacles
+            for obstacle_id in self.obstacle_ids:
+                obstacle_pos, _ = p.getBasePositionAndOrientation(obstacle_id)
+                distance = np.linalg.norm(pos - obstacle_pos)
+                if distance < 1:  # Assuming obstacle radius is 1
+                    rewards[i] -= 100
+                    costs[i] += 1
+
+        # Check if all drones have reached the target
+        done = all(np.linalg.norm(p.getBasePositionAndOrientation(drone_id)[0] - self.target) < 1 for drone_id in self.drone_ids)
+
+        return self._get_obs(), rewards.sum(), done, {"costs": costs.sum()}
+
+    def close(self):
+        p.disconnect()
+```
+
+---
+
+#### **2. MAPPO with V-function and Q-function Constraints**
+We implement MAPPO with both V-function and Q-function constraints using PyTorch.
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.distributions import MultivariateNormal
+
+class ActorCritic(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=64):
+        super(ActorCritic, self).__init__()
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim)
+        )
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
+        self.cost_critic = nn.Sequential(
+            nn.Linear(state_dim + action_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
+
+    def forward(self, state, action=None):
+        action_mean = self.actor(state)
+        value = self.critic(state)
+        if action is not None:
+            cost_value = self.cost_critic(torch.cat([state, action], dim=-1))
+            return action_mean, value, cost_value
+        return action_mean, value
+
+class MAPPO:
+    def __init__(self, state_dim, action_dim, num_drones, hidden_dim=64, lr=1e-3, gamma=0.99, clip_epsilon=0.2, cost_threshold=0.1):
+        self.actors = [ActorCritic(state_dim, action_dim, hidden_dim) for _ in range(num_drones)]
+        self.critic = ActorCritic(state_dim, action_dim, hidden_dim)
+        self.optimizers = [optim.Adam(actor.parameters(), lr=lr) for actor in self.actors]
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr)
+        self.gamma = gamma
+        self.clip_epsilon = clip_epsilon
+        self.cost_threshold = cost_threshold
+
+    def update(self, states, actions, rewards, costs, next_states, dones):
+        states = torch.FloatTensor(states)
+        actions = torch.FloatTensor(actions)
+        rewards = torch.FloatTensor(rewards)
+        costs = torch.FloatTensor(costs)
+        next_states = torch.FloatTensor(next_states)
+        dones = torch.FloatTensor(dones)
+
+        # Compute advantages
+        _, values, _ = self.critic(states, actions)
+        _, next_values, _ = self.critic(next_states, actions)
+        advantages = rewards + self.gamma * next_values * (1 - dones) - values
+
+        # Compute cost advantages
+        _, _, cost_values = self.critic(states, actions)
+        _, _, next_cost_values = self.critic(next_states, actions)
+        cost_advantages = costs + self.gamma * next_cost_values * (1 - dones) - cost_values
+
+        # Update actors with Q-function constraints
+        for i, actor in enumerate(self.actors):
+            action_mean, _, _ = actor(states, actions[:, i])
+            dist = MultivariateNormal(action_mean, torch.eye(action_mean.shape[1]))
+            log_probs = dist.log_prob(actions[:, i])
+            ratios = torch.exp(log_probs - log_probs.detach())
+            surr1 = ratios * advantages[:, i]
+            surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages[:, i]
+            actor_loss = -torch.min(surr1, surr2).mean()
+
+            # Add Q-function constraint
+            cost_violation = torch.relu(cost_advantages[:, i] - self.cost_threshold)
+            actor_loss += 10 * cost_violation.mean()
+
+            self.optimizers[i].zero_grad()
+            actor_loss.backward()
+            self.optimizers[i].step()
+
+        # Update critic
+        critic_loss = advantages.pow(2).mean() + cost_advantages.pow(2).mean()
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+```
+
+---
+
+#### **3. Training Loop**
+The training loop runs the environment and updates the MAPPO algorithm.
+
+```python
+def train_mappo(env, mappo, num_episodes=1000, max_steps=100):
+    for episode in range(num_episodes):
+        state = env.reset()
+        episode_rewards = np.zeros(env.num_drones)
+        episode_costs = np.zeros(env.num_drones)
+
+        for step in range(max_steps):
+            # Get actions from actors
+            actions = []
+            for i, actor in enumerate(mappo.actors):
+                action_mean, _, _ = actor(torch.FloatTensor(state))
+                dist = MultivariateNormal(action_mean, torch.eye(action_mean.shape[1]))
+                action = dist.sample()
+                actions.append(action.numpy())
+            actions = np.array(actions).T
+
+            # Step the environment
+            next_state, rewards, costs, done = env.step(actions)
+            episode_rewards += rewards
+            episode_costs += costs
+
+            # Update MAPPO
+            mappo.update(state, actions, rewards, costs, next_state, done)
+
+            state = next_state
+            if done:
+                break
+
+        print(f"Episode {episode + 1}, Total Reward: {episode_rewards.sum()}, Total Cost: {episode_costs.sum()}")
+
+# Initialize environment and MAPPO
+env = SwarmDroneEnv()
+state_dim = env.get_state().shape[0]
+action_dim = 3  # Thrust in x, y, z directions
+mappo = MAPPO(state_dim, action_dim, env.num_drones)
+
+# Train MAPPO
+train_mappo(env, mappo)
+```
+
+---
+
+### **Key Features**
+- **PyBullet Integration**: Uses PyBullet for realistic physics simulation.
+- **MAPPO with Q-function Constraints**: Ensures action-level safety by constraining the Q-function.
+- **Custom Environment**: Simulates a swarm of drones navigating to a target while avoiding obstacles and maintaining a minimum distance.
+
+---
+
+### **Notes**
+- The **Q-function constraints** are implemented by adding a penalty for violating the cost threshold.
+- The **cost Q-function** is estimated using a separate neural network.
+- You can further improve the implementation by:
+  - Adding more sophisticated collision avoidance mechanisms.
+  - Using parallelized training for scalability.
+  - Tuning hyperparameters for better performance.
+
+Let me know if you need further assistance!
+
+---
+
+Below is the rewritten implementation of the **swarm drone control task** using **MAPPO with V-function constraints** in a **PyBullet Gym environment**. The V-function constraints ensure that the expected cumulative cost of states is bounded, providing state-level safety guarantees.
+
+---
+
+### **Code Implementation**
+
+#### **1. Custom PyBullet Gym Environment**
+The environment remains the same as before, simulating the swarm of drones, obstacles, and the target location.
+
+```python
+import gym
+import numpy as np
+import pybullet as p
+import pybullet_data
+from gym import spaces
+
+class SwarmDroneEnv(gym.Env):
+    def __init__(self, num_drones=5, num_obstacles=3, target=(10, 10, 5), min_distance=2, dt=0.1):
+        super(SwarmDroneEnv, self).__init__()
+        self.num_drones = num_drones
+        self.num_obstacles = num_obstacles
+        self.target = np.array(target)
+        self.min_distance = min_distance
+        self.dt = dt
+
+        # Define action and observation space
+        self.action_space = spaces.Box(low=-1, high=1, shape=(num_drones * 3,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_drones * 6 + num_obstacles * 3 + 3,), dtype=np.float32)
+
+        # Initialize PyBullet
+        self.physics_client = p.connect(p.GUI)  # Use p.DIRECT for headless mode
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setGravity(0, 0, -9.81)
+
+        # Load ground plane
+        self.plane_id = p.loadURDF("plane.urdf")
+
+        # Load drones
+        self.drone_ids = []
+        for _ in range(num_drones):
+            drone_id = p.loadURDF("quadrotor.urdf", basePosition=[0, 0, 1])
+            self.drone_ids.append(drone_id)
+
+        # Load obstacles
+        self.obstacle_ids = []
+        for _ in range(num_obstacles):
+            obstacle_id = p.loadURDF("sphere_small.urdf", basePosition=[3, 3, 1])
+            self.obstacle_ids.append(obstacle_id)
+
+    def reset(self):
+        # Reset drone positions and velocities
+        for i, drone_id in enumerate(self.drone_ids):
+            p.resetBasePositionAndOrientation(drone_id, [i, i, 1], [0, 0, 0, 1])
+            p.resetBaseVelocity(drone_id, [0, 0, 0], [0, 0, 0])
+        return self._get_obs()
+
+    def _get_obs(self):
+        # Get drone positions and velocities
+        drone_positions = []
+        drone_velocities = []
+        for drone_id in self.drone_ids:
+            pos, _ = p.getBasePositionAndOrientation(drone_id)
+            vel, _ = p.getBaseVelocity(drone_id)
+            drone_positions.append(pos)
+            drone_velocities.append(vel)
+
+        # Get obstacle positions
+        obstacle_positions = []
+        for obstacle_id in self.obstacle_ids:
+            pos, _ = p.getBasePositionAndOrientation(obstacle_id)
+            obstacle_positions.append(pos)
+
+        # Concatenate observations
+        obs = np.concatenate([
+            np.array(drone_positions).flatten(),
+            np.array(drone_velocities).flatten(),
+            np.array(obstacle_positions).flatten(),
+            self.target.flatten()
+        ])
+        return obs
+
+    def step(self, actions):
+        # Reshape actions to (num_drones, 3)
+        actions = actions.reshape(self.num_drones, 3)
+
+        # Apply actions to drones
+        for i, drone_id in enumerate(self.drone_ids):
+            p.applyExternalForce(drone_id, -1, actions[i], [0, 0, 0], p.WORLD_FRAME)
+
+        # Step simulation
+        p.stepSimulation()
+
+        # Compute rewards and costs
+        rewards = np.zeros(self.num_drones)
+        costs = np.zeros(self.num_drones)
+
+        for i, drone_id in enumerate(self.drone_ids):
+            pos, _ = p.getBasePositionAndOrientation(drone_id)
+
+            # Reward for reaching the target
+            distance_to_target = np.linalg.norm(pos - self.target)
+            rewards[i] += -distance_to_target
+
+            # Penalty for violating minimum distance
+            for j, other_drone_id in enumerate(self.drone_ids):
+                if i != j:
+                    other_pos, _ = p.getBasePositionAndOrientation(other_drone_id)
+                    distance = np.linalg.norm(pos - other_pos)
+                    if distance < self.min_distance:
+                        rewards[i] -= 10 * (self.min_distance - distance)
+                        costs[i] += 1
+
+            # Penalty for colliding with obstacles
+            for obstacle_id in self.obstacle_ids:
+                obstacle_pos, _ = p.getBasePositionAndOrientation(obstacle_id)
+                distance = np.linalg.norm(pos - obstacle_pos)
+                if distance < 1:  # Assuming obstacle radius is 1
+                    rewards[i] -= 100
+                    costs[i] += 1
+
+        # Check if all drones have reached the target
+        done = all(np.linalg.norm(p.getBasePositionAndOrientation(drone_id)[0] - self.target) < 1 for drone_id in self.drone_ids)
+
+        return self._get_obs(), rewards.sum(), done, {"costs": costs.sum()}
+
+    def close(self):
+        p.disconnect()
+```
+
+---
+
+#### **2. MAPPO with V-function Constraints**
+We implement MAPPO with V-function constraints using PyTorch. The V-function evaluates the expected cumulative cost of states.
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.distributions import MultivariateNormal
+
+class ActorCritic(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=64):
+        super(ActorCritic, self).__init__()
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim)
+        )
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
+        self.cost_critic = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1)
+        )
+
+    def forward(self, state):
+        action_mean = self.actor(state)
+        value = self.critic(state)
+        cost_value = self.cost_critic(state)
+        return action_mean, value, cost_value
+
+class MAPPO:
+    def __init__(self, state_dim, action_dim, num_drones, hidden_dim=64, lr=1e-3, gamma=0.99, clip_epsilon=0.2, cost_threshold=0.1):
+        self.actors = [ActorCritic(state_dim, action_dim, hidden_dim) for _ in range(num_drones)]
+        self.critic = ActorCritic(state_dim, action_dim, hidden_dim)
+        self.optimizers = [optim.Adam(actor.parameters(), lr=lr) for actor in self.actors]
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr)
+        self.gamma = gamma
+        self.clip_epsilon = clip_epsilon
+        self.cost_threshold = cost_threshold
+
+    def update(self, states, actions, rewards, costs, next_states, dones):
+        states = torch.FloatTensor(states)
+        actions = torch.FloatTensor(actions)
+        rewards = torch.FloatTensor(rewards)
+        costs = torch.FloatTensor(costs)
+        next_states = torch.FloatTensor(next_states)
+        dones = torch.FloatTensor(dones)
+
+        # Compute advantages
+        _, values, _ = self.critic(states)
+        _, next_values, _ = self.critic(next_states)
+        advantages = rewards + self.gamma * next_values * (1 - dones) - values
+
+        # Compute cost advantages
+        _, _, cost_values = self.critic(states)
+        _, _, next_cost_values = self.critic(next_states)
+        cost_advantages = costs + self.gamma * next_cost_values * (1 - dones) - cost_values
+
+        # Update actors with V-function constraints
+        for i, actor in enumerate(self.actors):
+            action_mean, _, _ = actor(states)
+            dist = MultivariateNormal(action_mean, torch.eye(action_mean.shape[1]))
+            log_probs = dist.log_prob(actions[:, i])
+            ratios = torch.exp(log_probs - log_probs.detach())
+            surr1 = ratios * advantages[:, i]
+            surr2 = torch.clamp(ratios, 1 - self.clip_epsilon, 1 + self.clip_epsilon) * advantages[:, i]
+            actor_loss = -torch.min(surr1, surr2).mean()
+
+            # Add V-function constraint
+            cost_violation = torch.relu(cost_advantages - self.cost_threshold)
+            actor_loss += 10 * cost_violation.mean()
+
+            self.optimizers[i].zero_grad()
+            actor_loss.backward()
+            self.optimizers[i].step()
+
+        # Update critic
+        critic_loss = advantages.pow(2).mean() + cost_advantages.pow(2).mean()
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+```
+
+---
+
+#### **3. Training Loop**
+The training loop runs the environment and updates the MAPPO algorithm.
+
+```python
+def train_mappo(env, mappo, num_episodes=1000, max_steps=100):
+    for episode in range(num_episodes):
+        state = env.reset()
+        episode_rewards = np.zeros(env.num_drones)
+        episode_costs = np.zeros(env.num_drones)
+
+        for step in range(max_steps):
+            # Get actions from actors
+            actions = []
+            for i, actor in enumerate(mappo.actors):
+                action_mean, _, _ = actor(torch.FloatTensor(state))
+                dist = MultivariateNormal(action_mean, torch.eye(action_mean.shape[1]))
+                action = dist.sample()
+                actions.append(action.numpy())
+            actions = np.array(actions).T
+
+            # Step the environment
+            next_state, rewards, costs, done = env.step(actions)
+            episode_rewards += rewards
+            episode_costs += costs
+
+            # Update MAPPO
+            mappo.update(state, actions, rewards, costs, next_state, done)
+
+            state = next_state
+            if done:
+                break
+
+        print(f"Episode {episode + 1}, Total Reward: {episode_rewards.sum()}, Total Cost: {episode_costs.sum()}")
+
+# Initialize environment and MAPPO
+env = SwarmDroneEnv()
+state_dim = env.get_state().shape[0]
+action_dim = 3  # Thrust in x, y, z directions
+mappo = MAPPO(state_dim, action_dim, env.num_drones)
+
+# Train MAPPO
+train_mappo(env, mappo)
+```
+
+---
+
+### **Key Features**
+- **PyBullet Integration**: Uses PyBullet for realistic physics simulation.
+- **MAPPO with V-function Constraints**: Ensures state-level safety by constraining the V-function.
+- **Custom Environment**: Simulates a swarm of drones navigating to a target while avoiding obstacles and maintaining a minimum distance.
+
+---
+
+### **Notes**
+- The **V-function constraints** are implemented by adding a penalty for violating the cost threshold.
+- The **cost V-function** is estimated using a separate neural network.
+- You can further improve the implementation by:
+  - Adding more sophisticated collision avoidance mechanisms.
+  - Using parallelized training for scalability.
+  - Tuning hyperparameters for better performance.
+
+Let me know if you need further assistance!
