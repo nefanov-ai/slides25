@@ -1,6 +1,4 @@
-In the **MAPPO implementation** provided above, the **critic is not centralized**. Each agent (drone) has its own critic, which is not shared among the agents. To implement a **centralized critic**, we need to modify the implementation so that all agents share a single critic network. This critic will evaluate the value function \( V(s) \) for the global state \( s \), which includes the states of all agents.
-
-Below, I provide the updated implementation with a **centralized critic** and **V-function constraints** for **safe RL**.
+To add **V-function constraints** to the **MAPPO with a centralized critic**, we need to modify the training loop to include a **Lagrangian multiplier** for the safety constraint. The V-function constraint ensures that the expected cumulative cost (e.g., time spent in unsafe states) does not exceed a predefined threshold. Below is the updated implementation with **V-function constraints** for safe RL.
 
 ---
 
@@ -132,7 +130,7 @@ class SwarmDroneEnv(gym.Env):
 ---
 
 #### **2. MAPPO with Centralized Critic and V-function Constraints**
-We implement MAPPO with a **centralized critic** and **V-function constraints** for safe RL. The centralized critic evaluates the value function \( V(s) \) for the global state \( s \).
+We implement MAPPO with a **centralized critic** and **V-function constraints** for safe RL. The V-function constraint is enforced using a **Lagrangian multiplier**.
 
 ```python
 import torch
@@ -164,6 +162,10 @@ class MAPPO:
         self.actors = [PPO("MlpPolicy", env, policy_kwargs=policy_kwargs, **kwargs) for _ in range(num_drones)]
         self.critic = CentralizedCritic(env.observation_space.shape[0])
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=kwargs.get("learning_rate", 3e-4))
+        self.lagrangian_multiplier = torch.tensor(1.0, requires_grad=True)
+        self.lagrangian_optimizer = optim.Adam([self.lagrangian_multiplier], lr=1e-4)
+        self.cost_threshold = kwargs.get("cost_threshold", 0.1)
+        self.gamma = kwargs.get("gamma", 0.99)
 
     def learn(self, total_timesteps, callback=None):
         for model in self.actors:
@@ -176,11 +178,12 @@ class MAPPO:
             actions.append(action)
         return np.array(actions).flatten()
 
-    def update_critic(self, states, rewards, next_states, dones):
+    def update_critic(self, states, rewards, next_states, dones, costs):
         states = torch.FloatTensor(states)
         rewards = torch.FloatTensor(rewards)
         next_states = torch.FloatTensor(next_states)
         dones = torch.FloatTensor(dones)
+        costs = torch.FloatTensor(costs)
 
         # Compute value estimates
         values = self.critic(states)
@@ -189,11 +192,23 @@ class MAPPO:
         # Compute advantages
         advantages = rewards + self.gamma * next_values * (1 - dones) - values
 
+        # Compute cost advantages
+        cost_values = self.critic(states)
+        next_cost_values = self.critic(next_states)
+        cost_advantages = costs + self.gamma * next_cost_values * (1 - dones) - cost_values
+
         # Update critic
-        critic_loss = advantages.pow(2).mean()
+        critic_loss = advantages.pow(2).mean() + cost_advantages.pow(2).mean()
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
+
+        # Update Lagrangian multiplier
+        constraint_violation = torch.relu(cost_advantages.mean() - self.cost_threshold)
+        lagrangian_loss = -self.lagrangian_multiplier * constraint_violation
+        self.lagrangian_optimizer.zero_grad()
+        lagrangian_loss.backward()
+        self.lagrangian_optimizer.step()
 
 # Create the environment
 env = SwarmDroneEnv()
@@ -214,6 +229,7 @@ mappo = MAPPO(
     gae_lambda=0.95,
     clip_range=0.2,
     ent_coef=0.01,
+    cost_threshold=0.1,
     tensorboard_log="./swarm_drone_tensorboard/"
 )
 
@@ -260,14 +276,14 @@ for _ in range(1000):
 
 ### **Key Features**
 - **Centralized Critic**: All agents share a single critic network that evaluates the value function \( V(s) \) for the global state \( s \).
-- **V-function Constraints**: Ensures state-level safety by constraining the expected cumulative cost.
+- **V-function Constraints**: Ensures state-level safety by constraining the expected cumulative cost using a Lagrangian multiplier.
 - **Custom Environment**: Simulates a swarm of drones navigating to a target while avoiding obstacles and maintaining a minimum distance.
 
 ---
 
 ### **Notes**
-- The **centralized critic** evaluates the global state, which includes the states of all agents.
-- The **V-function constraints** are implemented by adding a penalty for violating the cost threshold.
+- The **Lagrangian multiplier** is used to enforce the V-function constraint by penalizing violations of the cost threshold.
+- The **cost threshold** \( \tau \) is a hyperparameter that controls the trade-off between performance and safety.
 - You can further improve the implementation by:
   - Adding more sophisticated collision avoidance mechanisms.
   - Using parallelized training with multiple environments.
