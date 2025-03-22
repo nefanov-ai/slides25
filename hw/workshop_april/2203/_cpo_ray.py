@@ -112,3 +112,33 @@ tune.run(
     stop={"timesteps_total": 100000},
     checkpoint_at_end=True,
 )
+
+# Evaluate the trained agent
+env = make_env()
+obs = env.reset()
+done = False
+total_reward = 0
+total_cost = 0
+
+while not done:
+    action, _states = model.predict(obs, deterministic=True)
+    obs, reward, done, info = env.step(action)
+    total_reward += reward
+    total_cost += info.get("cost", 0)
+
+print(f"Total reward: {total_reward}")
+print(f"Total cost: {total_cost}")
+
+# Get the final optimized IR
+optimized_ir = env.compiler_env.ir
+
+# Print some statistics
+print(f"Benchmark: {env.benchmark}")
+print(f"Final bytes count: {env.compiler_env.observation['TextSizeBytes']}; \
+      Profit: {(1 - env.compiler_env.observation['TextSizeBytes'] / env.compiler_env.observation['TextSizeOz']) * 100}%")
+
+print(f"Final runtime: {env.compiler_env.observation['Runtime'][0]}; Profit: \
+      {(1 - env.compiler_env.observation['Runtime'][0] / env._baseline_runtime[0]) * 100}%")
+
+# Close the environment
+env.close()
