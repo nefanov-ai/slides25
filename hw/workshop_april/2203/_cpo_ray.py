@@ -1,3 +1,6 @@
+'''
+The good point is that CPO guarantees constraint satisfaction based on TRPO.
+'''
 import compiler_gym
 from compiler_gym.envs import LlvmEnv
 from compiler_gym.wrappers import TimeLimit
