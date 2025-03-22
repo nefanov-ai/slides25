@@ -1,5 +1,4 @@
 import compiler_gym
-from compiler_gym.envs import LlvmEnv
 
 def compile_and_measure(benchmark: str, optimization_flag: str):
     # Initialize the CompilerGym environment
@@ -8,11 +7,11 @@ def compile_and_measure(benchmark: str, optimization_flag: str):
         benchmark=benchmark,  # Specify the benchmark
     )
 
-    # Reset the environment with the specified optimization flag
-    env.reset(options=[optimization_flag])
+    # Set the optimization flag using commandline
+    env.commandline(optimization_flag)
 
     # Compile the benchmark
-    observation, reward, done, info = env.step(env.action_space.sample())
+    env.reset()
 
     # Get the runtime and code size
     runtime = env.observation["Runtime"]
